@@ -7,6 +7,127 @@ export interface Time {
 	reqNextFrame: (callback: () => void) => void;
 }
 
+export function getFunctionRange(
+	f: (x: number) => number,
+	a: number = 0,
+	b: number = 1,
+	samples: number = 1000,
+): { min: number; max: number } {
+	let min = Infinity;
+	let max = -Infinity;
+	for (let i = 0; i <= samples; i++) {
+		const x = a + ((b - a) * i) / samples;
+		const val = f(x);
+		if (val < min) min = val;
+		if (val > max) max = val;
+	}
+	return { min, max };
+}
+
+export function findNextIntersection(
+	f: (x: number) => number,
+	target: number,
+	startX: number = 0,
+	endX: number = 1,
+	tolerance: number = 1e-6,
+	maxIterations: number = 100,
+): number | null {
+	const samples = 1000;
+	let prevX = startX;
+	let prevVal = f(prevX);
+	for (let i = 1; i <= samples; i++) {
+		const x = startX + ((endX - startX) * i) / samples;
+		const val = f(x);
+		if (Math.abs(val - target) < tolerance) {
+			return x;
+		}
+		if ((prevVal - target) * (val - target) < 0) {
+			// 符号变化，进行二分查找
+			let lo = prevX;
+			let hi = x;
+			for (let iter = 0; iter < maxIterations; iter++) {
+				const mid = (lo + hi) / 2;
+				const midVal = f(mid);
+				if (Math.abs(midVal - target) < tolerance) {
+					return mid;
+				}
+				if ((prevVal - target) * (midVal - target) < 0) {
+					hi = mid;
+				} else {
+					lo = mid;
+				}
+			}
+			return (lo + hi) / 2;
+		}
+		prevX = x;
+		prevVal = val;
+	}
+	return null;
+}
+
+export function findInverse(
+	f: (x: number) => number,
+	v: number,
+	a: number = 0,
+	b: number = 1,
+	tolerance: number = 1e-6,
+	maxIterations: number = 100,
+): number | null {
+	// 先检查是否有解
+	const range = getFunctionRange(f, a, b, 1000);
+	if (v < range.min || v > range.max) {
+		return null;
+	}
+
+	// 将区间分成多个小区间
+	const samples = 1000;
+	let prevX = a;
+	let prevVal = f(prevX);
+
+	for (let i = 1; i <= samples; i++) {
+		const x = a + ((b - a) * i) / samples;
+		const val = f(x);
+
+		// 检查是否接近目标值
+		if (Math.abs(val - v) < tolerance) {
+			return x;
+		}
+
+		// 检查是否有符号变化
+		if ((prevVal - v) * (val - v) < 0) {
+			// 在区间 [prevX, x] 内进行二分查找
+			let lo = prevX;
+			let hi = x;
+			for (let iter = 0; iter < maxIterations; iter++) {
+				const mid = (lo + hi) / 2;
+				const midVal = f(mid);
+				if (Math.abs(midVal - v) < tolerance) {
+					return mid;
+				}
+				if ((prevVal - v) * (midVal - v) < 0) {
+					hi = mid;
+				} else {
+					lo = mid;
+				}
+			}
+			return (lo + hi) / 2;
+		}
+
+		prevX = x;
+		prevVal = val;
+	}
+
+	// 如果没有找到精确解，检查端点
+	if (Math.abs(f(a) - v) < tolerance) {
+		return a;
+	}
+	if (Math.abs(f(b) - v) < tolerance) {
+		return b;
+	}
+
+	return null;
+}
+
 class defaultTime implements Time {
 	getTimeMs(): number {
 		return Date.now();
@@ -216,36 +337,6 @@ export class AnimationGear {
 		}
 	}
 
-	private binarySearchInverse(f: (x: number) => number, v: number): number {
-		const f0 = f(0);
-		const f1 = f(1);
-		const increasing = f0 <= f1;
-		let lo = 0;
-		let hi = 1;
-		const tolerance = 1e-6;
-		for (let i = 0; i < 100; i++) {
-			const mid = (lo + hi) / 2;
-			const val = f(mid);
-			if (Math.abs(val - v) < tolerance) {
-				return mid;
-			}
-			if (increasing) {
-				if (val < v) {
-					lo = mid;
-				} else {
-					hi = mid;
-				}
-			} else {
-				if (val < v) {
-					hi = mid;
-				} else {
-					lo = mid;
-				}
-			}
-		}
-		return (lo + hi) / 2;
-	}
-
 	moveToState(stateName: string) {
 		if (!this.state[stateName]) {
 			throw new Error(`State ${stateName} does not exist.`);
@@ -265,7 +356,8 @@ export class AnimationGear {
 				const t = this.getTransition(oldState, newState);
 				if (!t) return;
 				const newF = t.m;
-				const x = this.binarySearchInverse(newF, v);
+				const x = findInverse(newF, v);
+				if (x === null) return;
 				first.timeLine.stopTimeline();
 				const newTimeLine = new TimeLine(this.time, t.duration, (n) => {
 					t.f(n);
