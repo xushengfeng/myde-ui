@@ -155,6 +155,7 @@ class TimeLine {
 	private stop = true;
 	private startTime: number = 0;
 	private endTime: number = 0;
+	private stopProgress: number = 1.1;
 	initTime() {
 		this.startTime = this.time.getTimeMs();
 		this.endTime = this.startTime + this.duration;
@@ -186,11 +187,19 @@ class TimeLine {
 			return;
 		}
 		const progress = (currentTime - this.startTime) / this.duration;
+		if (progress >= this.stopProgress) {
+			this.callback(this.stopProgress);
+			this.stop = true;
+			return;
+		}
 		this.callback(progress);
 		this.time.reqNextFrame(() => this.r());
 	}
 	stopTimeline() {
 		this.stop = true;
+	}
+	stopTimelineAt(progress: number) {
+		this.stopProgress = progress;
 	}
 	isRunning() {
 		return !this.stop;
@@ -348,33 +357,86 @@ export class AnimationGear {
 				if (!firstT) return;
 				const t = this.getTransition(oldState, newState);
 				if (!t) return;
-				let x = 0;
+				let x: number | null = null;
 				if (firstT.sameMap) {
+					// 直接反解
 					x = 1 - p;
 				} else {
 					const v = firstT.m(p);
 					const newF = t.m;
-					const _x = findInverse(newF, v);
-					if (_x === null) return;
-					x = _x;
+					x = findInverse(newF, v);
 				}
-				first.timeLine.stopTimeline();
-				const newTimeLine = new TimeLine(this.time, t.duration, (n) => {
-					t.f(n);
-					if (n === 1) {
-						this.bigTimeLine.shift();
-						this.bigTimeLine.at(0)?.timeLine.start();
+				// 特殊值域匹配
+				if (x !== null) {
+					first.timeLine.stopTimeline();
+					const newTimeLine = new TimeLine(this.time, t.duration, (n) => {
+						t.f(n);
+						if (n === 1) {
+							this.bigTimeLine.shift();
+							this.bigTimeLine.at(0)?.timeLine.start();
+						}
+					});
+					this.bigTimeLine[0] = {
+						fromState: oldState,
+						toState: newState,
+						timeLine: newTimeLine,
+						startTime: this.time.getTimeMs(),
+					};
+					newTimeLine.initTime();
+					newTimeLine.setProgress(x);
+					newTimeLine.launch();
+				} else {
+					const range = getFunctionRange(t.m, 0, 1);
+					const v = firstT.m(p);
+					if (range.min <= v && v <= range.max) {
+						console.warn("理应可以反解，但是反解失败");
+						this.bigTimeLine.push({
+							fromState: oldState,
+							toState: newState,
+							timeLine: new TimeLine(this.time, t.duration, (n) => {
+								t.f(n);
+								if (n === 1) {
+									this.bigTimeLine.shift();
+									this.bigTimeLine.at(0)?.timeLine.start();
+								}
+							}),
+							startTime: this.time.getTimeMs(),
+						});
+					} else {
+						const target = v < range.min ? range.min : range.max;
+						const x = findInverse(t.m, target);
+						if (x === null) {
+							console.warn("找不到切入点");
+							this.bigTimeLine.push({
+								fromState: oldState,
+								toState: newState,
+								timeLine: new TimeLine(this.time, t.duration, (n) => {
+									t.f(n);
+									if (n === 1) {
+										this.bigTimeLine.shift();
+										this.bigTimeLine.at(0)?.timeLine.start();
+									}
+								}),
+								startTime: this.time.getTimeMs(),
+							});
+						} else {
+							// 等当前运行到重合点
+							first.timeLine.stopTimelineAt(x);
+							this.bigTimeLine.push({
+								fromState: oldState,
+								toState: newState,
+								timeLine: new TimeLine(this.time, t.duration, (n) => {
+									t.f(n);
+									if (n === 1) {
+										this.bigTimeLine.shift();
+										this.bigTimeLine.at(0)?.timeLine.start();
+									}
+								}),
+								startTime: this.time.getTimeMs(),
+							});
+						}
 					}
-				});
-				this.bigTimeLine[0] = {
-					fromState: oldState,
-					toState: newState,
-					timeLine: newTimeLine,
-					startTime: this.time.getTimeMs(),
-				};
-				newTimeLine.initTime();
-				newTimeLine.setProgress(x);
-				newTimeLine.launch();
+				}
 			} else {
 				if (this.bigTimeLine.at(-1)?.toState !== oldState) {
 					console.warn(
