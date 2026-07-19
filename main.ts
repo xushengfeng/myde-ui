@@ -224,6 +224,18 @@ class TimeLine {
 	}
 }
 
+type TransitionOp = {
+	forward: {
+		map: (num: number) => number;
+		duration: number;
+	};
+	// 如果相关为空，继承forward
+	backward?: {
+		map?: (num: number) => number;
+		duration?: number;
+	};
+};
+
 export class AnimationGear {
 	time: Time;
 	currentState: string;
@@ -231,16 +243,7 @@ export class AnimationGear {
 		stateName: string;
 		nextStates: string;
 		cb: (num: number) => void;
-		op: {
-			forward: {
-				map?: (num: number) => number;
-				duration: number;
-			};
-			backward: {
-				map?: (num: number) => number;
-				duration: number;
-			};
-		};
+		op: TransitionOp;
 		timeLine?: TimeLine;
 	}[] = [];
 	private bigTimeLine: {
@@ -271,16 +274,7 @@ export class AnimationGear {
 		stateName: string,
 		nextStates: string,
 		cb: (num: number) => void,
-		op: {
-			forward: {
-				map?: (num: number) => number;
-				duration: number;
-			};
-			backward: {
-				map?: (num: number) => number;
-				duration: number;
-			};
-		},
+		op: TransitionOp,
 	) {
 		this.stateTransitions.push({
 			stateName,
@@ -297,6 +291,7 @@ export class AnimationGear {
 				m: (num: number) => number;
 				f: (num: number) => void;
 				duration: number;
+				sameMap: boolean;
 		  }
 		| undefined {
 		for (const transition of this.stateTransitions) {
@@ -308,29 +303,28 @@ export class AnimationGear {
 			) {
 				if (transition.stateName === oldState) {
 					// forward
-					const m = (num: number) => {
-						const mappedNum = transition.op.forward.map
-							? transition.op.forward.map(num)
-							: num;
-						return mappedNum;
-					};
+					const m = (num: number) => transition.op.forward.map(num);
 					return {
 						duration: transition.op.forward.duration,
 						f: (num) => transition.cb(m(num)),
 						m,
+						sameMap: transition.op.backward?.map === undefined,
 					};
 				} else {
 					// backward
 					const m = (num: number) => {
-						const mappedNum = transition.op.backward.map
+						const mappedNum = transition.op.backward?.map
 							? transition.op.backward.map(num)
-							: num;
+							: transition.op.forward.map(num);
 						return 1 - mappedNum;
 					};
 					return {
-						duration: transition.op.backward.duration,
+						duration:
+							transition.op.backward?.duration ??
+							transition.op.forward.duration,
 						f: (num) => transition.cb(m(num)),
 						m,
+						sameMap: transition.op.backward?.map === undefined,
 					};
 				}
 			}
@@ -352,12 +346,18 @@ export class AnimationGear {
 				const p = first.timeLine.getProgress();
 				const firstT = this.getTransition(first.fromState, first.toState);
 				if (!firstT) return;
-				const v = firstT.m(p);
 				const t = this.getTransition(oldState, newState);
 				if (!t) return;
-				const newF = t.m;
-				const x = findInverse(newF, v);
-				if (x === null) return;
+				let x = 0;
+				if (firstT.sameMap) {
+					x = 1 - p;
+				} else {
+					const v = firstT.m(p);
+					const newF = t.m;
+					const _x = findInverse(newF, v);
+					if (_x === null) return;
+					x = _x;
+				}
 				first.timeLine.stopTimeline();
 				const newTimeLine = new TimeLine(this.time, t.duration, (n) => {
 					t.f(n);

@@ -128,7 +128,10 @@ describe("简单测试", () => {
 				values.push(num);
 				currentValue = num;
 			},
-			{ forward: { duration: 100 }, backward: { duration: 100 } },
+			{
+				forward: { duration: 100, map: (x) => x },
+				backward: { duration: 100 },
+			},
 		);
 		gear.moveToState("off");
 		timeInstance.tickMore(116);
@@ -156,7 +159,10 @@ describe("简单测试", () => {
 			(num) => {
 				values.push(num);
 			},
-			{ forward: { duration: 100 }, backward: { duration: 100 } },
+			{
+				forward: { duration: 100, map: (x) => x },
+				backward: { duration: 100 },
+			},
 		);
 		gear.moveToState("off");
 		timeInstance.tickMore(75);
