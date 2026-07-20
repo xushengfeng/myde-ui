@@ -24,13 +24,13 @@ export function getFunctionRange(
 	return { min, max };
 }
 
-export function findNextIntersection(
+function _findRootByBisection(
 	f: (x: number) => number,
 	target: number,
-	startX: number = 0,
-	endX: number = 1,
-	tolerance: number = 1e-6,
-	maxIterations: number = 100,
+	startX: number,
+	endX: number,
+	tolerance: number,
+	maxIterations: number,
 ): number | null {
 	const samples = 1000;
 	let prevX = startX;
@@ -42,7 +42,6 @@ export function findNextIntersection(
 			return x;
 		}
 		if ((prevVal - target) * (val - target) < 0) {
-			// 符号变化，进行二分查找
 			let lo = prevX;
 			let hi = x;
 			for (let iter = 0; iter < maxIterations; iter++) {
@@ -65,6 +64,17 @@ export function findNextIntersection(
 	return null;
 }
 
+export function findNextIntersection(
+	f: (x: number) => number,
+	target: number,
+	startX: number = 0,
+	endX: number = 1,
+	tolerance: number = 1e-6,
+	maxIterations: number = 100,
+): number | null {
+	return _findRootByBisection(f, target, startX, endX, tolerance, maxIterations);
+}
+
 export function findInverse(
 	f: (x: number) => number,
 	v: number,
@@ -79,42 +89,10 @@ export function findInverse(
 		return null;
 	}
 
-	// 将区间分成多个小区间
-	const samples = 1000;
-	let prevX = a;
-	let prevVal = f(prevX);
-
-	for (let i = 1; i <= samples; i++) {
-		const x = a + ((b - a) * i) / samples;
-		const val = f(x);
-
-		// 检查是否接近目标值
-		if (Math.abs(val - v) < tolerance) {
-			return x;
-		}
-
-		// 检查是否有符号变化
-		if ((prevVal - v) * (val - v) < 0) {
-			// 在区间 [prevX, x] 内进行二分查找
-			let lo = prevX;
-			let hi = x;
-			for (let iter = 0; iter < maxIterations; iter++) {
-				const mid = (lo + hi) / 2;
-				const midVal = f(mid);
-				if (Math.abs(midVal - v) < tolerance) {
-					return mid;
-				}
-				if ((prevVal - v) * (midVal - v) < 0) {
-					hi = mid;
-				} else {
-					lo = mid;
-				}
-			}
-			return (lo + hi) / 2;
-		}
-
-		prevX = x;
-		prevVal = val;
+	// 尝试使用通用二分查找
+	const result = _findRootByBisection(f, v, a, b, tolerance, maxIterations);
+	if (result !== null) {
+		return result;
 	}
 
 	// 如果没有找到精确解，检查端点
@@ -279,6 +257,19 @@ export class AnimationGear {
 		this.currentState = Object.keys(this.state)[0];
 	}
 
+	private createTimeLine(
+		duration: number,
+		cb: (num: number) => void,
+	): TimeLine {
+		return new TimeLine(this.time, duration, (n) => {
+			cb(n);
+			if (n === 1) {
+				this.bigTimeLine.shift();
+				this.bigTimeLine.at(0)?.timeLine.start();
+			}
+		});
+	}
+
 	setTransition(
 		stateName: string,
 		nextStates: string,
@@ -369,13 +360,7 @@ export class AnimationGear {
 				// 特殊值域匹配
 				if (x !== null) {
 					first.timeLine.stopTimeline();
-					const newTimeLine = new TimeLine(this.time, t.duration, (n) => {
-						t.f(n);
-						if (n === 1) {
-							this.bigTimeLine.shift();
-							this.bigTimeLine.at(0)?.timeLine.start();
-						}
-					});
+					const newTimeLine = this.createTimeLine(t.duration, t.f);
 					this.bigTimeLine[0] = {
 						fromState: oldState,
 						toState: newState,
@@ -393,13 +378,7 @@ export class AnimationGear {
 						this.bigTimeLine.push({
 							fromState: oldState,
 							toState: newState,
-							timeLine: new TimeLine(this.time, t.duration, (n) => {
-								t.f(n);
-								if (n === 1) {
-									this.bigTimeLine.shift();
-									this.bigTimeLine.at(0)?.timeLine.start();
-								}
-							}),
+							timeLine: this.createTimeLine(t.duration, t.f),
 							startTime: this.time.getTimeMs(),
 						});
 					} else {
@@ -410,13 +389,7 @@ export class AnimationGear {
 							this.bigTimeLine.push({
 								fromState: oldState,
 								toState: newState,
-								timeLine: new TimeLine(this.time, t.duration, (n) => {
-									t.f(n);
-									if (n === 1) {
-										this.bigTimeLine.shift();
-										this.bigTimeLine.at(0)?.timeLine.start();
-									}
-								}),
+								timeLine: this.createTimeLine(t.duration, t.f),
 								startTime: this.time.getTimeMs(),
 							});
 						} else {
@@ -425,13 +398,7 @@ export class AnimationGear {
 							this.bigTimeLine.push({
 								fromState: oldState,
 								toState: newState,
-								timeLine: new TimeLine(this.time, t.duration, (n) => {
-									t.f(n);
-									if (n === 1) {
-										this.bigTimeLine.shift();
-										this.bigTimeLine.at(0)?.timeLine.start();
-									}
-								}),
+								timeLine: this.createTimeLine(t.duration, t.f),
 								startTime: this.time.getTimeMs(),
 							});
 						}
@@ -456,13 +423,7 @@ export class AnimationGear {
 				if (!t) return;
 				// 最后一个时间线应该保持正常过渡优雅结尾
 				// 除非不是最后一个，那就按改变状态间隔来计
-				const thisT = new TimeLine(this.time, t.duration, (n) => {
-					t.f(n);
-					if (n === 1) {
-						this.bigTimeLine.shift();
-						this.bigTimeLine.at(0)?.timeLine.start();
-					}
-				});
+				const thisT = this.createTimeLine(t.duration, t.f);
 				const now = this.time.getTimeMs();
 				const lastT = this.bigTimeLine.at(-1);
 				if (!lastT) return;
@@ -477,13 +438,7 @@ export class AnimationGear {
 		} else {
 			const f = this.getTransition(oldState, newState);
 			if (f) {
-				const t = new TimeLine(this.time, f.duration, (n) => {
-					f.f(n);
-					if (n === 1) {
-						this.bigTimeLine.shift();
-						this.bigTimeLine.at(0)?.timeLine.start();
-					}
-				});
+				const t = this.createTimeLine(f.duration, f.f);
 				this.bigTimeLine.push({
 					fromState: oldState,
 					toState: newState,
