@@ -283,12 +283,26 @@ export class AnimationGear {
 		cb: (num: number) => void,
 		op: TransitionOp,
 	) {
-		this.stateTransitions.push({
-			stateName,
-			nextStates,
-			cb,
-			op,
-		});
+		const existingIndex = this.stateTransitions.findIndex(
+			(t) =>
+				(t.stateName === stateName && t.nextStates === nextStates) ||
+				(t.stateName === nextStates && t.nextStates === stateName),
+		);
+		if (existingIndex >= 0) {
+			this.stateTransitions[existingIndex] = {
+				stateName,
+				nextStates,
+				cb,
+				op,
+			};
+		} else {
+			this.stateTransitions.push({
+				stateName,
+				nextStates,
+				cb,
+				op,
+			});
+		}
 	}
 	private getTransition(
 		oldState: string,
