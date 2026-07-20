@@ -72,7 +72,14 @@ export function findNextIntersection(
 	tolerance: number = 1e-6,
 	maxIterations: number = 100,
 ): number | null {
-	return _findRootByBisection(f, target, startX, endX, tolerance, maxIterations);
+	return _findRootByBisection(
+		f,
+		target,
+		startX,
+		endX,
+		tolerance,
+		maxIterations,
+	);
 }
 
 export function findInverse(
@@ -341,25 +348,27 @@ export class AnimationGear {
 
 		if (this.bigTimeLine.length > 0) {
 			const first = this.bigTimeLine[0];
-			if (first.fromState === newState && first.toState === oldState) {
+			// biome-ignore lint/style/noNonNullAssertion: len>0
+			const last = this.bigTimeLine.at(-1)!;
+			if (last.fromState === newState && last.toState === oldState) {
 				// 反解
-				const p = first.timeLine.getProgress();
-				const firstT = this.getTransition(first.fromState, first.toState);
-				if (!firstT) return;
+				const p = last.timeLine.getProgress();
+				const lastT = this.getTransition(last.fromState, last.toState);
+				if (!lastT) return;
 				const t = this.getTransition(oldState, newState);
 				if (!t) return;
 				let x: number | null = null;
-				if (firstT.sameMap) {
+				if (lastT.sameMap) {
 					// 直接反解
 					x = 1 - p;
 				} else {
-					const v = firstT.m(p);
+					const v = lastT.m(p);
 					const newF = t.m;
 					x = findInverse(newF, v);
 				}
 				// 特殊值域匹配
 				if (x !== null) {
-					first.timeLine.stopTimeline();
+					last.timeLine.stopTimeline();
 					const newTimeLine = this.createTimeLine(t.duration, t.f);
 					this.bigTimeLine[0] = {
 						fromState: oldState,
@@ -372,7 +381,7 @@ export class AnimationGear {
 					newTimeLine.launch();
 				} else {
 					const range = getFunctionRange(t.m, 0, 1);
-					const v = firstT.m(p);
+					const v = lastT.m(p);
 					if (range.min <= v && v <= range.max) {
 						console.warn("理应可以反解，但是反解失败");
 						this.bigTimeLine.push({
@@ -394,7 +403,7 @@ export class AnimationGear {
 							});
 						} else {
 							// 等当前运行到重合点
-							first.timeLine.stopTimelineAt(x);
+							last.timeLine.stopTimelineAt(x);
 							this.bigTimeLine.push({
 								fromState: oldState,
 								toState: newState,
