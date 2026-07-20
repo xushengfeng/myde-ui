@@ -182,8 +182,7 @@ function createSwitch() {
 
 	// 初始化为关状态
 	currentTranslateX = 0;
-	thumb.el.style.transform = "translateX(0px)";
-	switchContainer.el.style.backgroundColor = "#e9e9eb";
+	gear.jumpToState("off");
 
 	// Pointer 事件（统一处理鼠标和触摸）
 	switchContainer.el.addEventListener("pointerdown", (e) => {

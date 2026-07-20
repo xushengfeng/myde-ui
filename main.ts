@@ -472,4 +472,25 @@ export class AnimationGear {
 			}
 		}
 	}
+
+	/**
+	 * 直接跳转到某个状态，不触发动画
+	 * 适合在初始化时使用
+	 */
+	jumpToState(stateName: string) {
+		if (!this.state[stateName]) {
+			throw new Error(`State ${stateName} does not exist.`);
+		}
+		const oldState = this.currentState;
+		const newState = stateName;
+		this.currentState = stateName;
+		for (const l of this.bigTimeLine) {
+			l.timeLine.stopTimeline();
+		}
+		this.bigTimeLine = [];
+		const t = this.getTransition(oldState, newState);
+		if (t) {
+			t.f(1);
+		}
+	}
 }
