@@ -153,6 +153,9 @@ describe("简单测试", () => {
 			},
 		);
 		const values: number[] = [];
+		// 这里只需要创建一条边，自动创建on到off和off到on的动画
+		// 前面，也就是on对应的回调值是0，后面off对应的回调值是1
+		// 从on到off的动画是0到1，从off到on的动画是1到0
 		gear.setTransition(
 			"on",
 			"off",
