@@ -10,48 +10,71 @@
 
 动画引擎纯js，除了`requestAnimationFrame`没有其他dom api，因此只是引擎，可驱动tui等。
 
-是个状态机，每个状态就是一个静态的界面，状态间切换就是过渡`transition`
+类似于css的transition，但是可以自定义不同的插值属性，同时控制每次变换的时间和曲线
 
-### 状态图定义
+### 新API设计（泛型支持）
 
-第一个键是初始状态：
+AnimationGear现在支持泛型，可以定义多值状态：
 
 ```ts
-new AnimationGear({
-    off: { name: "off", next: ["on"] }, // 初始状态
-    on: { name: "on", next: ["off"] },
+type State = { x: number; y: number; opacity: number };
+
+const gear = new AnimationGear<State>(
+    { x: 0, y: 0, opacity: 1 }, // 初始值
+    {
+        time?: Time, // 可选时间源
+        transition?: { // 默认transition配置
+            duration: 300,
+            map: (x) => x // 可选缓动曲线
+        }
+    }
+);
+```
+
+### 命名状态
+
+通过`addState`添加命名状态：
+
+```ts
+gear.addState("start", { x: 0, y: 0, opacity: 1 }, ["end"]);
+gear.addState("end", { x: 100, y: 50, opacity: 0.5 }, ["start"]);
+```
+
+### 移动到目标
+
+`moveTo`支持两种模式和可选transition配置：
+
+```ts
+// 移动到命名状态（使用默认transition）
+gear.moveTo("end");
+
+// 移动到任意值（部分属性）
+gear.moveTo({ x: 50, y: 25 });
+
+// 指定duration覆盖默认值
+gear.moveTo({ x: 50 }, { duration: 500 });
+
+// 指定duration和map曲线
+gear.moveTo({ x: 50 }, { duration: 500, map: (x) => x * x });
+
+// duration=0 直接跳转无动画
+gear.moveTo("start", { duration: 0 });
+gear.moveTo({ x: 0, y: 0 }, 0);
+```
+
+### 更新回调
+
+设置通用更新回调，用于任意值变化：
+
+```ts
+gear.setUpdateCallback((state) => {
+    element.style.transform = `translate(${state.x}px, ${state.y}px)`;
 });
 ```
 
-### 状态对
+### 打断动画
 
-`stateTransitions` 中的两个状态不分前后，是一个状态对：
-
-```ts
-setTransition("on", "off", cb, op); // 设置 on<->off 过渡
-setTransition("off", "on", cb, op); // 同上，会覆盖
-```
-
-#### 过渡方向
-
-在`setTransition("off", "on", cb, op)`中，从`off`到`on`
-
-- `forward`: `off` -> `on`（cb progress 0->1）
-- `backward`: `on` -> `off`（cb progress 1->0）
-
-可以给每个方向设置`duration`，还有`map`以创建缓动映射，`backward`缺省后继承`forward`属性
-
-backward不用处理方向问题，常规从0到1缓动曲线那样设计就行了，像forward那样，map值是相对方向的。对于cb progress，则有明确的行进方向，根据setTransition前面两个参数顺序决定。这样方便映射到具体样式，比如`on`这个实例状态progress就是1，位置、颜色都可以方便确定。
-
-### 状态切换和打断动画
-
-打断动画是特色
-
-通过`moveToState(state)`切换到状态并触发动画，回调cb progress将响应。如果在动画还未结束就又执行`moveToState`，引擎会计算相关数据实现视觉效果适合的、符合交互逻辑的动画打断衔接效果，如两个状态来回切换就自动反解，多个状态切换就加速等。
-
-改变状态不关心输入源，可能是鼠标、变量修改等。
-
-初始化界面可以用`jumpToState`无动画切换到初始界面。
+动画打断逻辑，从当前视觉值开始新动画
 
 ## dkh-ui 使用
 

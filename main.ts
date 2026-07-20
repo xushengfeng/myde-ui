@@ -1,116 +1,9 @@
-/** 用于方便模拟时间 */
 export type TimeerHandler = number & { __: "TimeerHandler" };
 export interface Time {
 	getTimeMs(): number;
 	setTimeOut: (ms: number, callback: () => void) => TimeerHandler;
 	clearTimeOut: (handler: TimeerHandler) => void;
 	reqNextFrame: (callback: () => void) => void;
-}
-
-export function getFunctionRange(
-	f: (x: number) => number,
-	a: number = 0,
-	b: number = 1,
-	samples: number = 1000,
-): { min: number; max: number } {
-	let min = Infinity;
-	let max = -Infinity;
-	for (let i = 0; i <= samples; i++) {
-		const x = a + ((b - a) * i) / samples;
-		const val = f(x);
-		if (val < min) min = val;
-		if (val > max) max = val;
-	}
-	return { min, max };
-}
-
-function _findRootByBisection(
-	f: (x: number) => number,
-	target: number,
-	startX: number,
-	endX: number,
-	tolerance: number,
-	maxIterations: number,
-): number | null {
-	const samples = 1000;
-	let prevX = startX;
-	let prevVal = f(prevX);
-	for (let i = 1; i <= samples; i++) {
-		const x = startX + ((endX - startX) * i) / samples;
-		const val = f(x);
-		if (Math.abs(val - target) < tolerance) {
-			return x;
-		}
-		if ((prevVal - target) * (val - target) < 0) {
-			let lo = prevX;
-			let hi = x;
-			for (let iter = 0; iter < maxIterations; iter++) {
-				const mid = (lo + hi) / 2;
-				const midVal = f(mid);
-				if (Math.abs(midVal - target) < tolerance) {
-					return mid;
-				}
-				if ((prevVal - target) * (midVal - target) < 0) {
-					hi = mid;
-				} else {
-					lo = mid;
-				}
-			}
-			return (lo + hi) / 2;
-		}
-		prevX = x;
-		prevVal = val;
-	}
-	return null;
-}
-
-export function findNextIntersection(
-	f: (x: number) => number,
-	target: number,
-	startX: number = 0,
-	endX: number = 1,
-	tolerance: number = 1e-6,
-	maxIterations: number = 100,
-): number | null {
-	return _findRootByBisection(
-		f,
-		target,
-		startX,
-		endX,
-		tolerance,
-		maxIterations,
-	);
-}
-
-export function findInverse(
-	f: (x: number) => number,
-	v: number,
-	a: number = 0,
-	b: number = 1,
-	tolerance: number = 1e-6,
-	maxIterations: number = 100,
-): number | null {
-	// 先检查是否有解
-	const range = getFunctionRange(f, a, b, 1000);
-	if (v < range.min || v > range.max) {
-		return null;
-	}
-
-	// 尝试使用通用二分查找
-	const result = _findRootByBisection(f, v, a, b, tolerance, maxIterations);
-	if (result !== null) {
-		return result;
-	}
-
-	// 如果没有找到精确解，检查端点
-	if (Math.abs(f(a) - v) < tolerance) {
-		return a;
-	}
-	if (Math.abs(f(b) - v) < tolerance) {
-		return b;
-	}
-
-	return null;
 }
 
 class defaultTime implements Time {
@@ -218,50 +111,77 @@ class TimeLine {
 	}
 }
 
-type TransitionOp = {
-	forward: {
-		map: (num: number) => number;
-		duration: number;
-	};
-	// 如果相关为空，继承forward
-	backward?: {
-		map?: (num: number) => number;
-		duration?: number;
-	};
+export type TransitionConfig = {
+	duration: number;
+	map?: (num: number) => number;
 };
 
-export class AnimationGear {
+export class AnimationGear<
+	T extends Record<string, number> = Record<string, number>,
+> {
 	time: Time;
-	currentState: string;
-	private stateTransitions: {
-		stateName: string;
-		nextStates: string;
-		cb: (num: number) => void;
-		op: TransitionOp;
-		timeLine?: TimeLine;
-	}[] = [];
-	private bigTimeLine: {
-		fromState: string;
-		toState: string;
+
+	private states: Map<
+		string,
+		{
+			value: T;
+			next: string[];
+		}
+	> = new Map();
+
+	currentStateName: string | null;
+	private currentValue: T;
+	private defaultTransition: TransitionConfig;
+	private updateCallback: ((value: T) => void) | null = null;
+
+	private currentTimeline: {
+		fromValue: T;
+		toValue: T;
 		timeLine: TimeLine;
-		durationHint?: number;
-		startTime: number;
-	}[] = [];
-	constructor(
-		private state: Record<
-			string,
-			{
-				name: string;
-				/** 实际是双向图，但是在描述中只能描述一条边 */
-				next: string[];
-			}
-		>,
-		op?: {
-			time?: Time;
-		},
-	) {
+		fromStateName?: string;
+		toStateName?: string;
+	} | null = null;
+
+	constructor(initial: T, op?: { time?: Time; transition?: TransitionConfig }) {
 		this.time = op?.time ?? new defaultTime();
-		this.currentState = Object.keys(this.state)[0];
+		this.currentValue = { ...initial } as T;
+		this.currentStateName = null;
+		this.defaultTransition = op?.transition ?? { duration: 300, map: (x) => x };
+	}
+
+	addState(name: string, value: T, next: string[]) {
+		this.states.set(name, { value: { ...value } as T, next });
+		return this;
+	}
+
+	setUpdateCallback(cb: (value: T) => void) {
+		this.updateCallback = cb;
+		return this;
+	}
+
+	private interpolate(from: T, to: T, progress: number): T {
+		const result = {} as T;
+		for (const key in from) {
+			if (key in to) {
+				(result[key] as number) = from[key] + (to[key] - from[key]) * progress;
+			} else {
+				result[key] = from[key];
+			}
+		}
+		return result;
+	}
+
+	private getCurrentVisualValue(): T {
+		if (!this.currentTimeline) {
+			return { ...this.currentValue } as T;
+		}
+
+		const progress = this.currentTimeline.timeLine.getProgress();
+		return this.interpolate(
+			this.currentTimeline.fromValue,
+			this.currentTimeline.toValue,
+			progress,
+		);
 	}
 
 	private createTimeLine(
@@ -271,226 +191,63 @@ export class AnimationGear {
 		return new TimeLine(this.time, duration, (n) => {
 			cb(n);
 			if (n === 1) {
-				this.bigTimeLine.shift();
-				this.bigTimeLine.at(0)?.timeLine.start();
+				this.currentTimeline = null;
 			}
 		});
 	}
 
-	setTransition(
-		stateName: string,
-		nextStates: string,
-		cb: (num: number) => void,
-		op: TransitionOp,
+	moveTo(target: string | Partial<T>, transition?: number | TransitionConfig) {
+		const oldValue = this.getCurrentVisualValue();
+		let newValue: T;
+		let targetStateName: string | null = null;
+
+		if (typeof target === "string") {
+			const state = this.states.get(target);
+			if (!state) {
+				throw new Error(`State ${target} does not exist.`);
+			}
+			newValue = { ...state.value } as T;
+			targetStateName = target;
+		} else {
+			newValue = { ...oldValue, ...target } as T;
+		}
+
+		const transitionConfig: TransitionConfig | undefined =
+			typeof transition === "number" ? { duration: transition } : transition;
+
+		this.handleInterrupt(oldValue, newValue, transitionConfig, targetStateName);
+	}
+
+	private handleInterrupt(
+		fromValue: T,
+		toValue: T,
+		transition?: TransitionConfig,
+		targetStateName?: string | null,
 	) {
-		const existingIndex = this.stateTransitions.findIndex(
-			(t) =>
-				(t.stateName === stateName && t.nextStates === nextStates) ||
-				(t.stateName === nextStates && t.nextStates === stateName),
-		);
-		if (existingIndex >= 0) {
-			this.stateTransitions[existingIndex] = {
-				stateName,
-				nextStates,
-				cb,
-				op,
-			};
-		} else {
-			this.stateTransitions.push({
-				stateName,
-				nextStates,
-				cb,
-				op,
-			});
+		if (this.currentTimeline) {
+			this.currentTimeline.timeLine.stopTimeline();
+			this.currentTimeline = null;
 		}
-	}
-	private getTransition(
-		oldState: string,
-		newState: string,
-	):
-		| {
-				m: (num: number) => number;
-				f: (num: number) => void;
-				duration: number;
-				sameMap: boolean;
-		  }
-		| undefined {
-		for (const transition of this.stateTransitions) {
-			if (
-				(transition.stateName === oldState &&
-					transition.nextStates === newState) ||
-				(transition.stateName === newState &&
-					transition.nextStates === oldState)
-			) {
-				if (transition.stateName === oldState) {
-					// forward
-					const m = (num: number) => transition.op.forward.map(num);
-					return {
-						duration: transition.op.forward.duration,
-						f: (num) => transition.cb(m(num)),
-						m,
-						sameMap: transition.op.backward?.map === undefined,
-					};
-				} else {
-					// backward
-					const m = (num: number) => {
-						const mappedNum = transition.op.backward?.map
-							? transition.op.backward.map(num)
-							: transition.op.forward.map(num);
-						return 1 - mappedNum;
-					};
-					return {
-						duration:
-							transition.op.backward?.duration ??
-							transition.op.forward.duration,
-						f: (num) => transition.cb(m(num)),
-						m,
-						sameMap: transition.op.backward?.map === undefined,
-					};
-				}
-			}
-		}
-	}
 
-	moveToState(stateName: string) {
-		if (!this.state[stateName]) {
-			throw new Error(`State ${stateName} does not exist.`);
-		}
-		const oldState = this.currentState;
-		const newState = stateName;
-		this.currentState = newState;
+		const d = transition?.duration ?? this.defaultTransition.duration;
+		const map = transition?.map ?? this.defaultTransition.map ?? ((x) => x);
 
-		if (this.bigTimeLine.length > 0) {
-			const first = this.bigTimeLine[0];
-			// biome-ignore lint/style/noNonNullAssertion: len>0
-			const last = this.bigTimeLine.at(-1)!;
-			if (last.fromState === newState && last.toState === oldState) {
-				// 反解
-				const p = last.timeLine.getProgress();
-				const lastT = this.getTransition(last.fromState, last.toState);
-				if (!lastT) return;
-				const t = this.getTransition(oldState, newState);
-				if (!t) return;
-				let x: number | null = null;
-				if (lastT.sameMap) {
-					// 直接反解
-					x = 1 - p;
-				} else {
-					const v = lastT.m(p);
-					const newF = t.m;
-					x = findInverse(newF, v);
-				}
-				// 特殊值域匹配
-				if (x !== null) {
-					last.timeLine.stopTimeline();
-					const newTimeLine = this.createTimeLine(t.duration, t.f);
-					this.bigTimeLine[0] = {
-						fromState: oldState,
-						toState: newState,
-						timeLine: newTimeLine,
-						startTime: this.time.getTimeMs(),
-					};
-					newTimeLine.initTime();
-					newTimeLine.setProgress(x);
-					newTimeLine.launch();
-				} else {
-					const range = getFunctionRange(t.m, 0, 1);
-					const v = lastT.m(p);
-					if (range.min <= v && v <= range.max) {
-						console.warn("理应可以反解，但是反解失败");
-						this.bigTimeLine.push({
-							fromState: oldState,
-							toState: newState,
-							timeLine: this.createTimeLine(t.duration, t.f),
-							startTime: this.time.getTimeMs(),
-						});
-					} else {
-						const target = v < range.min ? range.min : range.max;
-						const x = findInverse(t.m, target);
-						if (x === null) {
-							console.warn("找不到切入点");
-							this.bigTimeLine.push({
-								fromState: oldState,
-								toState: newState,
-								timeLine: this.createTimeLine(t.duration, t.f),
-								startTime: this.time.getTimeMs(),
-							});
-						} else {
-							// 等当前运行到重合点
-							last.timeLine.stopTimelineAt(x);
-							this.bigTimeLine.push({
-								fromState: oldState,
-								toState: newState,
-								timeLine: this.createTimeLine(t.duration, t.f),
-								startTime: this.time.getTimeMs(),
-							});
-						}
-					}
-				}
-			} else {
-				if (this.bigTimeLine.at(-1)?.toState !== oldState) {
-					console.warn(
-						`当前状态${oldState}与最后一个时间线的目标状态${this.bigTimeLine.at(-1)?.toState}不匹配，已忽略`,
-					);
-					return;
-				}
-				// 加速
-				const p = first.timeLine.getProgress();
-				const restDuration = first.timeLine.getRestDuration();
-				first.timeLine.setRestDuration(restDuration * p);
-				for (let i = 1; i < this.bigTimeLine.length; i++) {
-					const t = this.bigTimeLine[i];
-					if (t.durationHint) t.timeLine.setRestDuration(t.durationHint);
-				}
-				const t = this.getTransition(oldState, newState);
-				if (!t) return;
-				// 最后一个时间线应该保持正常过渡优雅结尾
-				// 除非不是最后一个，那就按改变状态间隔来计
-				const thisT = this.createTimeLine(t.duration, t.f);
-				const now = this.time.getTimeMs();
-				const lastT = this.bigTimeLine.at(-1);
-				if (!lastT) return;
-				this.bigTimeLine.push({
-					fromState: oldState,
-					toState: newState,
-					timeLine: thisT,
-					durationHint: now - lastT.startTime,
-					startTime: now,
-				});
-			}
-		} else {
-			const f = this.getTransition(oldState, newState);
-			if (f) {
-				const t = this.createTimeLine(f.duration, f.f);
-				this.bigTimeLine.push({
-					fromState: oldState,
-					toState: newState,
-					timeLine: t,
-					startTime: this.time.getTimeMs(),
-				});
-				t.start();
-			}
-		}
-	}
+		const timeLine = this.createTimeLine(d, (progress) => {
+			const mappedProgress = map(progress);
+			const value = this.interpolate(fromValue, toValue, mappedProgress);
+			this.currentValue = value;
+			this.updateCallback?.(value);
+		});
 
-	/**
-	 * 直接跳转到某个状态，不触发动画
-	 * 适合在初始化时使用
-	 */
-	jumpToState(stateName: string) {
-		if (!this.state[stateName]) {
-			throw new Error(`State ${stateName} does not exist.`);
-		}
-		const oldState = this.currentState;
-		const newState = stateName;
-		this.currentState = stateName;
-		for (const l of this.bigTimeLine) {
-			l.timeLine.stopTimeline();
-		}
-		this.bigTimeLine = [];
-		const t = this.getTransition(oldState, newState);
-		if (t) {
-			t.f(1);
-		}
+		this.currentTimeline = {
+			fromValue,
+			toValue,
+			timeLine,
+			fromStateName: this.currentStateName ?? undefined,
+			toStateName: targetStateName ?? undefined,
+		};
+
+		this.currentStateName = targetStateName ?? null;
+		timeLine.start();
 	}
 }

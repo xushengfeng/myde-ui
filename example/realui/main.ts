@@ -1,23 +1,25 @@
 import { p, txt, view } from "dkh-ui";
 import { AnimationGear } from "../../main";
 
-// 创建开关
+type SwitchState = {
+	translateX: number;
+	backgroundProgress: number;
+};
+
 function createSwitch() {
-	// 开关容器
 	const switchContainer = view().style({
 		width: "51px",
 		height: "31px",
-		backgroundColor: "#e9e9eb",
+		backgroundColor: "#E7E0EC",
 		borderRadius: "15.5px",
 		position: "relative",
 		cursor: "pointer",
 	});
 
-	// 开关滑块
 	const thumb = view().style({
 		width: "27px",
 		height: "27px",
-		backgroundColor: "white",
+		backgroundColor: "#49454F",
 		borderRadius: "50%",
 		position: "absolute",
 		top: "2px",
@@ -27,183 +29,112 @@ function createSwitch() {
 
 	switchContainer.add(thumb);
 
-	// 状态
-	let isOn = false;
-	let isDragging = false;
-	let isPendingDrag = false;
-	let dragStartX = 0;
-	let currentTranslateX = 0;
-
-	// 动画引擎
-	const gear = new AnimationGear({
-		off: { name: "off", next: ["on", "drag"] },
-		on: { name: "on", next: ["off", "drag"] },
-		drag: { name: "drag", next: ["on", "off"] },
-	});
-
-	// 设置过渡动画 (off <-> on)
-	gear.setTransition(
-		"off",
-		"on",
-		(progress) => {
-			const translateX = progress * 20;
-			updateUI(translateX, progress);
-		},
+	const gear = new AnimationGear<SwitchState>(
+		{ translateX: 0, backgroundProgress: 0 },
 		{
-			forward: { duration: 300, map: (x) => x },
-			backward: { duration: 300 },
+			transition: {
+				duration: 200,
+				map: (x) => x,
+			},
 		},
 	);
 
-	// 设置过渡动画 (off -> drag, 时长为0)
-	gear.setTransition("off", "drag", () => {}, {
-		forward: { duration: 0, map: (x) => x },
-		backward: { duration: 0 },
-	});
+	gear.addState("off", { translateX: 0, backgroundProgress: 0 }, ["on"]);
+	gear.addState("on", { translateX: 20, backgroundProgress: 1 }, ["off"]);
 
-	// 设置过渡动画 (on -> drag, 时长为0)
-	gear.setTransition("on", "drag", () => {}, {
-		forward: { duration: 0, map: (x) => x },
-		backward: { duration: 0 },
-	});
+	let isDragging = false;
+	let pointerDownX = 0;
+	let dragStartTranslateX = 0;
+	let currentTranslateX = 0;
 
-	// 更新 UI 的函数
-	function updateUI(translateX: number, progress?: number) {
-		thumb.el.style.transform = `translateX(${translateX}px)`;
-		currentTranslateX = translateX;
+	gear.moveTo("off", 0);
 
-		// 计算颜色进度 (0-1)
-		const colorProgress = progress !== undefined ? progress : translateX / 20;
-
-		// 背景颜色插值
-		const r = Math.round(233 * (1 - colorProgress));
-		const g = Math.round(233 + (122 - 233) * colorProgress);
-		const b = Math.round(235 + (255 - 235) * colorProgress);
-		switchContainer.el.style.backgroundColor = `rgb(${r},${g},${b})`;
-	}
-
-	// 动态创建 drag -> on/off 的 transition
-	function createDragReleaseTransition(targetState: string) {
-		const targetTranslateX = targetState === "on" ? 20 : 0;
-		const startTranslateX = currentTranslateX;
-		const distance = targetTranslateX - startTranslateX;
-		const startColorProgress = startTranslateX / 20;
-		const targetColorProgress = targetTranslateX / 20;
-		const colorDistance = targetColorProgress - startColorProgress;
-
-		gear.setTransition(
-			"drag",
-			targetState,
-			(progress) => {
-				// progress 0->1 对应从当前位置到目标位置
-				const translateX = startTranslateX + distance * progress;
-				// 计算颜色进度
-				const colorProgress = startColorProgress + colorDistance * progress;
-				updateUI(translateX, colorProgress);
-			},
-			{
-				forward: { duration: 200, map: (x) => x },
-				backward: { duration: 200 },
-			},
-		);
-	}
-
-	// 拖拽开始（只记录起始位置）
-	function onDragStart(clientX: number) {
-		isPendingDrag = true;
-		dragStartX = clientX;
-	}
-
-	function onDragMove(clientX: number) {
-		if (!isPendingDrag && !isDragging) return;
-
-		if (isPendingDrag) {
-			const deltaX = Math.abs(clientX - dragStartX);
-			if (deltaX > 1) {
-				isPendingDrag = false;
-				isDragging = true;
-				gear.moveToState("drag");
-			} else {
-				return;
-			}
-		}
-
-		const deltaX = clientX - dragStartX;
-		let newTranslateX = currentTranslateX + deltaX;
-
-		newTranslateX = Math.max(0, Math.min(20, newTranslateX));
-
-		updateUI(newTranslateX);
-		dragStartX = clientX;
-	}
-
-	function onDragEnd() {
-		if (isPendingDrag) {
-			isPendingDrag = false;
-			toggle();
-			return;
-		}
-
-		if (!isDragging) return;
+	switchContainer.el.addEventListener("pointerdown", (e) => {
+		e.preventDefault();
+		switchContainer.el.setPointerCapture(e.pointerId);
+		pointerDownX = e.clientX;
+		dragStartTranslateX = currentTranslateX;
 		isDragging = false;
+	});
 
-		const targetState = currentTranslateX > 10 ? "on" : "off";
+	switchContainer.el.addEventListener("pointermove", (e) => {
+		if (pointerDownX === 0) return;
 
-		createDragReleaseTransition(targetState);
+		const deltaX = e.clientX - pointerDownX;
 
-		gear.moveToState(targetState);
-		isOn = targetState === "on";
-		updateLabel();
-	}
-
-	function toggle() {
-		if (isDragging) return;
-
-		if (isOn) {
-			gear.moveToState("off");
-		} else {
-			gear.moveToState("on");
+		if (!isDragging && Math.abs(deltaX) > 2) {
+			isDragging = true;
 		}
-		isOn = !isOn;
-		updateLabel();
-	}
 
-	// 状态标签
-	const label = txt(isOn ? "开" : "关").style({
+		if (isDragging) {
+			const targetTranslateX = dragStartTranslateX + deltaX;
+			const clampedX = Math.max(0, Math.min(20, targetTranslateX));
+			gear.moveTo(
+				{ translateX: clampedX, backgroundProgress: clampedX / 20 },
+				0,
+			);
+		}
+	});
+
+	switchContainer.el.addEventListener("pointerup", () => {
+		if (isDragging) {
+			const isOn = currentTranslateX > 10;
+			gear.moveTo(isOn ? "on" : "off");
+			updateLabel();
+		} else {
+			const isOn = gear.currentStateName === "on";
+			gear.moveTo(isOn ? "off" : "on");
+			updateLabel();
+		}
+
+		pointerDownX = 0;
+		isDragging = false;
+	});
+
+	switchContainer.el.addEventListener("pointercancel", () => {
+		pointerDownX = 0;
+		isDragging = false;
+	});
+
+	gear.setUpdateCallback((state) => {
+		thumb.el.style.transform = `translateX(${state.translateX}px)`;
+		currentTranslateX = state.translateX;
+
+		const trackColorR = Math.round(
+			231 * (1 - state.backgroundProgress) + 103 * state.backgroundProgress,
+		);
+		const trackColorG = Math.round(
+			224 * (1 - state.backgroundProgress) + 80 * state.backgroundProgress,
+		);
+		const trackColorB = Math.round(
+			236 * (1 - state.backgroundProgress) + 164 * state.backgroundProgress,
+		);
+		switchContainer.el.style.backgroundColor = `rgb(${trackColorR},${trackColorG},${trackColorB})`;
+
+		const thumbColorR = Math.round(
+			73 * (1 - state.backgroundProgress) + 255 * state.backgroundProgress,
+		);
+		const thumbColorG = Math.round(
+			69 * (1 - state.backgroundProgress) + 251 * state.backgroundProgress,
+		);
+		const thumbColorB = Math.round(
+			79 * (1 - state.backgroundProgress) + 254 * state.backgroundProgress,
+		);
+		thumb.el.style.backgroundColor = `rgb(${thumbColorR},${thumbColorG},${thumbColorB})`;
+	});
+
+	const label = txt("关").style({
 		fontSize: "14px",
-		color: "#1d1d1f",
+		color: "#1C1B1F",
 		marginTop: "5px",
 		display: "block",
 	});
 
 	function updateLabel() {
+		const isOn = gear.currentStateName === "on";
 		label.sv(isOn ? "开" : "关");
 	}
 
-	// 初始化为关状态
-	currentTranslateX = 0;
-	gear.jumpToState("off");
-
-	// Pointer 事件（统一处理鼠标和触摸）
-	switchContainer.el.addEventListener("pointerdown", (e) => {
-		e.preventDefault();
-		switchContainer.el.setPointerCapture(e.pointerId);
-		onDragStart(e.clientX);
-	});
-
-	switchContainer.el.addEventListener("pointermove", (e) => {
-		onDragMove(e.clientX);
-	});
-
-	switchContainer.el.addEventListener("pointerup", () => {
-		onDragEnd();
-	});
-
-	switchContainer.el.addEventListener("pointercancel", () => {
-		onDragEnd();
-	});
-
-	// 返回包含开关和标签的容器
 	const wrapper = view()
 		.style({
 			display: "flex",
@@ -214,11 +145,157 @@ function createSwitch() {
 
 	return {
 		element: wrapper,
-		toggle: toggle,
 	};
 }
 
+function createSortAnimation() {
+	type SortItemState = {
+		x: number;
+		y: number;
+		scale: number;
+		opacity: number;
+	};
+
+	const container = view().style({
+		position: "relative",
+		height: "40px",
+	});
+
+	const items: {
+		element: ReturnType<typeof view>;
+		gear: AnimationGear<SortItemState>;
+		value: number;
+	}[] = [];
+
+	const initialValues = [3, 1, 4, 1, 5, 9, 2, 6];
+
+	const materialColors = [
+		"#6750A4",
+		"#625B71",
+		"#7D5260",
+		"#006C51",
+		"#0061A4",
+		"#9C4234",
+		"#4A6267",
+		"#7C5800",
+	];
+
+	for (let i = 0; i < initialValues.length; i++) {
+		const value = initialValues[i];
+		const color = materialColors[i % materialColors.length];
+		const element = view()
+			.style({
+				width: "40px",
+				height: "40px",
+				backgroundColor: color,
+				borderRadius: "4px",
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				color: "#FFFBFE",
+				fontWeight: "bold",
+				position: "absolute",
+			})
+			.add([txt(`${value}`)]);
+
+		const gear = new AnimationGear<SortItemState>(
+			{
+				x: i * 50,
+				y: 0,
+				scale: 1,
+				opacity: 1,
+			},
+			{
+				transition: {
+					duration: 500,
+					map: (x) => x,
+				},
+			},
+		);
+
+		gear.setUpdateCallback((state) => {
+			element.el.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+			element.el.style.opacity = `${state.opacity}`;
+		});
+
+		gear.moveTo({ x: i * 50, y: 0, scale: 1, opacity: 1 }, 0);
+
+		container.add(element);
+		items.push({ element, gear, value });
+	}
+
+	const shuffleBtn = view()
+		.style({
+			padding: "8px 16px",
+			backgroundColor: "#6750A4",
+			color: "#FFFBFE",
+			border: "none",
+			borderRadius: "20px",
+			cursor: "pointer",
+			marginTop: "20px",
+			fontSize: "14px",
+			fontWeight: "500",
+			letterSpacing: "0.1px",
+		})
+		.add([txt("随机乱序")]);
+
+	shuffleBtn.el.addEventListener("click", () => {
+		for (let i = items.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[items[i], items[j]] = [items[j], items[i]];
+		}
+
+		items.forEach((item, index) => {
+			item.gear.moveTo({ x: index * 50 });
+		});
+	});
+
+	const sortBtn = view()
+		.style({
+			padding: "8px 16px",
+			backgroundColor: "#625B71",
+			color: "#FFFBFE",
+			border: "none",
+			borderRadius: "20px",
+			cursor: "pointer",
+			marginTop: "20px",
+			marginLeft: "10px",
+			fontSize: "14px",
+			fontWeight: "500",
+			letterSpacing: "0.1px",
+		})
+		.add([txt("排序")]);
+
+	sortBtn.el.addEventListener("click", async () => {
+		[...items]
+			.sort((a, b) => a.value - b.value)
+			.forEach((item, index) => {
+				item.gear.moveTo({ x: index * 50 });
+			});
+	});
+
+	const wrapper = view()
+		.style({
+			marginTop: "40px",
+		})
+		.add([
+			p("排序动画示例"),
+			container,
+			view()
+				.style({
+					display: "flex",
+					gap: "10px",
+					marginTop: "10px",
+				})
+				.add([shuffleBtn, sortBtn]),
+		]);
+
+	return wrapper;
+}
+
 const { element: switchElement } = createSwitch();
+const sortElement = createSortAnimation();
+
 view()
-	.add([p("开关示例"), switchElement])
+	.add([p("开关示例"), switchElement, sortElement])
 	.addInto();
