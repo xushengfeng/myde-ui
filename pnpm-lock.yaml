@@ -7,14 +7,13 @@ settings:
 importers:
 
   .:
-    dependencies:
-      dkh-ui:
-        specifier: ^0.14.2
-        version: 0.14.2
     devDependencies:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      dkh-ui:
+        specifier: ^0.14.2
+        version: 0.14.2
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
