@@ -12,11 +12,11 @@ class defaultTime implements Time {
 	}
 	setTimeOut(ms: number, callback: () => void): TimeerHandler {
 		const handler = setTimeout(callback, ms);
-		return handler as TimeerHandler;
+		return handler as unknown as TimeerHandler;
 	}
 
 	clearTimeOut(handler: TimeerHandler): void {
-		clearTimeout(handler as number);
+		clearTimeout(handler as unknown as number);
 	}
 
 	reqNextFrame(callback: () => void): void {

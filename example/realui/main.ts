@@ -1,5 +1,5 @@
 import { p, txt, view } from "dkh-ui";
-import { AnimationGear } from "../../main";
+import { AnimationGear } from "../../src/index";
 
 type SwitchState = {
 	translateX: number;

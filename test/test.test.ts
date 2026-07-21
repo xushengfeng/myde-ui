@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { AnimationGear, type Time, type TimeerHandler } from "../main";
+import { describe, expect, it } from "vitest";
+import { AnimationGear, type Time, type TimeerHandler } from "../src/index";
 
 class time implements Time {
 	private currentTime: number = 0;
