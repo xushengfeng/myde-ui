@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { AnimationGear, type Time, type TimeerHandler } from "../src/index";
+import {
+	AnimationGear,
+	type Time,
+	type TimeerHandler,
+	timingFunction,
+} from "../src/index";
 
 class time implements Time {
 	private currentTime: number = 0;
@@ -474,5 +479,101 @@ describe("打断测试", () => {
 		checkInterrupt(values);
 
 		expect(values[values.length - 1]).toBeCloseTo(100, 0);
+	});
+});
+
+describe("timing-functions", () => {
+	it("linear函数", () => {
+		expect(timingFunction.linear(0)).toBe(0);
+		expect(timingFunction.linear(0.5)).toBe(0.5);
+		expect(timingFunction.linear(1)).toBe(1);
+		expect(timingFunction.linear(0.25)).toBe(0.25);
+	});
+
+	it("ease函数", () => {
+		expect(timingFunction.ease(0)).toBe(0);
+		expect(timingFunction.ease(1)).toBe(1);
+		// ease在中间应该比线性快
+		expect(timingFunction.ease(0.5)).toBeGreaterThan(0.5);
+	});
+
+	it("easeIn函数", () => {
+		expect(timingFunction.easeIn(0)).toBe(0);
+		expect(timingFunction.easeIn(1)).toBe(1);
+		// easeIn在开始应该比线性慢
+		expect(timingFunction.easeIn(0.25)).toBeLessThan(0.25);
+	});
+
+	it("easeOut函数", () => {
+		expect(timingFunction.easeOut(0)).toBe(0);
+		expect(timingFunction.easeOut(1)).toBe(1);
+		// easeOut在开始应该比线性快
+		expect(timingFunction.easeOut(0.25)).toBeGreaterThan(0.25);
+	});
+
+	it("easeInOut函数", () => {
+		expect(timingFunction.easeInOut(0)).toBe(0);
+		expect(timingFunction.easeInOut(1)).toBe(1);
+		// easeInOut在开始应该比线性慢，在结束应该比线性快
+		expect(timingFunction.easeInOut(0.25)).toBeLessThan(0.25);
+		expect(timingFunction.easeInOut(0.75)).toBeGreaterThan(0.75);
+	});
+
+	it("createCubicBezier函数", () => {
+		const custom = timingFunction.cubicBezier(0.5, 0, 0.5, 1);
+		expect(custom(0)).toBe(0);
+		expect(custom(1)).toBe(1);
+		expect(custom(0.5)).toBeGreaterThan(0);
+		expect(custom(0.5)).toBeLessThan(1);
+	});
+
+	it("timing-function在AnimationGear中使用", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{
+				time: timeInstance,
+				transition: {
+					duration: 100,
+					map: timingFunction.easeInOut,
+				},
+			},
+		);
+
+		const values: number[] = [];
+
+		gear.setUpdateCallback((state) => {
+			values.push(state.x);
+		});
+
+		gear.moveTo({ x: 100 });
+		timeInstance.tickMore(116);
+
+		expect(values.length).toBeGreaterThan(0);
+		const lastValue = values[values.length - 1];
+		expect(lastValue).toBeCloseTo(100, 0);
+	});
+
+	it("timing-function在moveTo中使用", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		const values: number[] = [];
+
+		gear.setUpdateCallback((state) => {
+			values.push(state.x);
+		});
+
+		gear.moveTo({ x: 100 }, { duration: 100, map: timingFunction.easeIn });
+		timeInstance.tickMore(116);
+
+		expect(values.length).toBeGreaterThan(0);
+		const lastValue = values[values.length - 1];
+		expect(lastValue).toBeCloseTo(100, 0);
 	});
 });

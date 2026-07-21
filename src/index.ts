@@ -1,3 +1,6 @@
+export { timingFunction } from "./timing-functions";
+export type { TimingFunction } from "./timing-functions";
+
 export type TimeerHandler = number & { __: "TimeerHandler" };
 export interface Time {
 	getTimeMs(): number;
