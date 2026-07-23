@@ -577,3 +577,155 @@ describe("timing-functions", () => {
 		expect(lastValue).toBeCloseTo(100, 0);
 	});
 });
+
+describe("addState 配置", () => {
+	it("简单连接", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.addState("start", { x: 0 }, ["end"]);
+		gear.addState("end", { x: 100 }, ["start"]);
+
+		let lastValue: State = { x: 0 };
+		gear.setUpdateCallback((state) => {
+			lastValue = { ...state };
+		});
+
+		gear.moveTo("start", 0);
+		gear.moveTo("end");
+		timeInstance.tickMore(116);
+
+		expect(lastValue.x).toBeCloseTo(100, 0);
+	});
+
+	it("带配置的连接", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.addState("start", { x: 0 }, ["end"]);
+		gear.addState("end", { x: 100 }, [
+			{ name: "start", duration: 200 }
+		]);
+
+		let lastValue: State = { x: 0 };
+		gear.setUpdateCallback((state) => {
+			lastValue = { ...state };
+		});
+
+		// 从 start 到 end，使用全局配置 (duration: 100)
+		gear.moveTo("start", 0);
+		gear.moveTo("end");
+		timeInstance.tickMore(116);
+		expect(lastValue.x).toBeCloseTo(100, 0);
+
+		// 从 end 到 start，使用状态机配置 (duration: 200)
+		gear.moveTo("start");
+		timeInstance.tickMore(50);
+		// 50ms / 200ms = 25%，应该还没完成
+		expect(lastValue.x).toBeGreaterThan(0);
+		timeInstance.tickMore(166);
+		expect(lastValue.x).toBeCloseTo(0, 0);
+	});
+
+	it("onComplete 回调", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		let completed = false;
+		gear.addState("start", { x: 0 }, ["end"]);
+		gear.addState("end", { x: 100 }, [
+			{ name: "start", onComplete: () => { completed = true; } }
+		]);
+
+		gear.setUpdateCallback(() => {});
+
+		gear.moveTo("start", 0);
+		gear.moveTo("end");
+		timeInstance.tickMore(116);
+
+		// 从 end 到 start 时应该触发 onComplete
+		gear.moveTo("start");
+		timeInstance.tickMore(116);
+
+		expect(completed).toBe(true);
+	});
+
+	it("配置优先级", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.addState("start", { x: 0 }, ["end"]);
+		gear.addState("end", { x: 100 }, [
+			{ name: "start", duration: 200 }
+		]);
+
+		let lastValue: State = { x: 0 };
+		gear.setUpdateCallback((state) => {
+			lastValue = { ...state };
+		});
+
+		gear.moveTo("start", 0);
+		gear.moveTo("end");
+		timeInstance.tickMore(116);
+		expect(lastValue.x).toBeCloseTo(100, 0);
+
+		// moveTo 参数应该覆盖状态机配置
+		gear.moveTo("start", { duration: 50 });
+		timeInstance.tickMore(66);
+		expect(lastValue.x).toBeCloseTo(0, 0);
+	});
+
+	it("打断时 onComplete 不触发", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		let completedCount = 0;
+		gear.addState("start", { x: 0 }, ["end"]);
+		gear.addState("end", { x: 100 }, [
+			{ name: "start", onComplete: () => { completedCount++; } }
+		]);
+
+		gear.setUpdateCallback(() => {});
+
+		gear.moveTo("start", 0);
+		gear.moveTo("end");
+		timeInstance.tickMore(116);
+
+		// 从 end 到 start，但中途打断
+		gear.moveTo("start");
+		timeInstance.tickMore(50);
+		// 打断，回到 end
+		gear.moveTo("end");
+		timeInstance.tickMore(116);
+
+		// onComplete 不应该触发（因为被打断了）
+		expect(completedCount).toBe(0);
+
+		// 再次完整执行
+		gear.moveTo("start");
+		timeInstance.tickMore(216);
+
+		// 现在应该触发了
+		expect(completedCount).toBe(1);
+	});
+});
