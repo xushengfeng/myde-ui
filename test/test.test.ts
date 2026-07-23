@@ -729,3 +729,126 @@ describe("addState 配置", () => {
 		expect(completedCount).toBe(1);
 	});
 });
+
+describe("getRunningAnimation", () => {
+	it("没有动画时返回 isRunning: false", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		const status = gear.getRunningAnimation();
+		expect(status.isRunning).toBe(false);
+	});
+
+	it("动画运行时返回完整状态", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.setUpdateCallback(() => {});
+		gear.moveTo({ x: 100 });
+
+		const status = gear.getRunningAnimation();
+		expect(status.isRunning).toBe(true);
+		if (status.isRunning) {
+			expect(status.config.duration).toBe(100);
+			expect(status.remainingTime).toBeGreaterThan(0);
+			expect(status.remainingTime).toBeLessThanOrEqual(100);
+			expect(status.progress).toBeGreaterThanOrEqual(0);
+			expect(status.progress).toBeLessThan(1);
+			expect(status.fromValue).toEqual({ x: 0 });
+			expect(status.toValue).toEqual({ x: 100 });
+		}
+	});
+
+	it("动画完成后返回 isRunning: false", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.setUpdateCallback(() => {});
+		gear.moveTo({ x: 100 });
+		timeInstance.tickMore(116);
+
+		const status = gear.getRunningAnimation();
+		expect(status.isRunning).toBe(false);
+	});
+
+	it("返回正确的状态名", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.addState("start", { x: 0 }, ["end"]);
+		gear.addState("end", { x: 100 }, ["start"]);
+
+		gear.setUpdateCallback(() => {});
+		gear.moveTo("start", 0);
+		gear.moveTo("end");
+
+		const status = gear.getRunningAnimation();
+		expect(status.isRunning).toBe(true);
+		if (status.isRunning) {
+			expect(status.fromStateName).toBe("start");
+			expect(status.toStateName).toBe("end");
+		}
+	});
+
+	it("返回正确的配置（包含自定义 duration）", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.setUpdateCallback(() => {});
+		gear.moveTo({ x: 100 }, { duration: 200 });
+
+		const status = gear.getRunningAnimation();
+		expect(status.isRunning).toBe(true);
+		if (status.isRunning) {
+			expect(status.config.duration).toBe(200);
+			expect(status.remainingTime).toBeGreaterThan(100);
+			expect(status.remainingTime).toBeLessThanOrEqual(200);
+		}
+	});
+
+	it("打断后返回新动画的状态", () => {
+		const timeInstance = new time();
+		type State = { x: number };
+		const gear = new AnimationGear<State>(
+			{ x: 0 },
+			{ time: timeInstance, transition: { duration: 100 } },
+		);
+
+		gear.setUpdateCallback(() => {});
+		gear.moveTo({ x: 100 });
+		timeInstance.tickMore(50);
+
+		// 打断动画
+		gear.moveTo({ x: 50 }, { duration: 200 });
+
+		const status = gear.getRunningAnimation();
+		expect(status.isRunning).toBe(true);
+		if (status.isRunning) {
+			expect(status.config.duration).toBe(200);
+			expect(status.toValue).toEqual({ x: 50 });
+			// 剩余时间应该接近 200ms（新动画的时长）
+			expect(status.remainingTime).toBeGreaterThan(100);
+			expect(status.remainingTime).toBeLessThanOrEqual(200);
+		}
+	});
+});

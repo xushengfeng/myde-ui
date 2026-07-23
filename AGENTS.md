@@ -104,6 +104,33 @@ gear.setUpdateCallback((state) => {
 });
 ```
 
+### 获取动画状态
+
+`getRunningAnimation()` 获取当前运行动画的状态信息：
+
+```ts
+const status = gear.getRunningAnimation();
+
+if (status.isRunning) {
+    console.log(`剩余时间: ${status.remainingTime}ms`);
+    console.log(`进度: ${status.progress * 100}%`);
+    console.log(`配置时长: ${status.config.duration}ms`);
+    console.log(`目标值:`, status.toValue);
+} else {
+    console.log("没有动画在运行");
+}
+```
+
+**返回类型 `AnimationStatus<T>`：**
+- 无动画：`{ isRunning: false }`
+- 有动画：
+  - `isRunning: true`
+  - `config: TransitionConfig` - 动画配置（duration、map等）
+  - `remainingTime: number` - 剩余时间（毫秒）
+  - `progress: number` - 当前进度（0-1）
+  - `fromValue: T` / `toValue: T` - 起始/目标值
+  - `fromStateName?: string` / `toStateName?: string` - 起始/目标状态名
+
 ### 打断动画
 
 动画打断逻辑，从当前视觉值开始新动画

@@ -120,6 +120,19 @@ export type TransitionConfig = {
 	onComplete?: () => void;
 };
 
+export type RunningAnimation<T> = {
+	isRunning: true;
+	config: TransitionConfig;
+	remainingTime: number;
+	progress: number;
+	fromValue: T;
+	toValue: T;
+	fromStateName?: string;
+	toStateName?: string;
+};
+
+export type AnimationStatus<T> = { isRunning: false } | RunningAnimation<T>;
+
 export type StateConnection =
 	| string
 	| ({
@@ -149,6 +162,7 @@ export class AnimationGear<
 		fromValue: T;
 		toValue: T;
 		timeLine: TimeLine;
+		transition: TransitionConfig;
 		fromStateName?: string;
 		toStateName?: string;
 	} | null = null;
@@ -188,6 +202,24 @@ export class AnimationGear<
 	setUpdateCallback(cb: (value: T) => void) {
 		this.updateCallback = cb;
 		return this;
+	}
+
+	getRunningAnimation(): AnimationStatus<T> {
+		if (!this.currentTimeline?.timeLine.isRunning()) {
+			return { isRunning: false };
+		}
+
+		const timeline = this.currentTimeline;
+		return {
+			isRunning: true,
+			config: timeline.transition,
+			remainingTime: timeline.timeLine.getRestDuration(),
+			progress: timeline.timeLine.getProgress(),
+			fromValue: timeline.fromValue,
+			toValue: timeline.toValue,
+			fromStateName: timeline.fromStateName,
+			toStateName: timeline.toStateName,
+		};
 	}
 
 	private interpolate(from: T, to: T, progress: number): T {
@@ -311,6 +343,7 @@ export class AnimationGear<
 			fromValue,
 			toValue,
 			timeLine,
+			transition: mergedTransition,
 			fromStateName: this.currentStateName ?? undefined,
 			toStateName: targetStateName ?? undefined,
 		};
