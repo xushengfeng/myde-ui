@@ -120,6 +120,12 @@ export type TransitionConfig = {
 	onComplete?: () => void;
 };
 
+export type StateConnection =
+	| string
+	| ({
+			name: string;
+	  } & Partial<TransitionConfig>);
+
 export class AnimationGear<
 	T extends Record<string, number> = Record<string, number>,
 > {
@@ -130,6 +136,7 @@ export class AnimationGear<
 		{
 			value: T;
 			next: string[];
+			transitions: Map<string, TransitionConfig>;
 		}
 	> = new Map();
 
@@ -153,8 +160,28 @@ export class AnimationGear<
 		this.defaultTransition = op?.transition ?? { duration: 300, map: (x) => x };
 	}
 
-	addState(name: string, value: T, next: string[]) {
-		this.states.set(name, { value: { ...value } as T, next });
+	addState(name: string, value: T, next: StateConnection[]) {
+		const nextNames: string[] = [];
+		const transitions = new Map<string, TransitionConfig>();
+
+		for (const conn of next) {
+			if (typeof conn === "string") {
+				nextNames.push(conn);
+			} else {
+				nextNames.push(conn.name);
+				transitions.set(conn.name, {
+					duration: conn.duration ?? this.defaultTransition.duration,
+					map: conn.map ?? this.defaultTransition.map,
+					onComplete: conn.onComplete,
+				});
+			}
+		}
+
+		this.states.set(name, {
+			value: { ...value } as T,
+			next: nextNames,
+			transitions,
+		});
 		return this;
 	}
 
@@ -230,7 +257,12 @@ export class AnimationGear<
 			transitionConfig.onComplete = onComplete;
 		} else if (onComplete) {
 			// 如果没有 transitionConfig，创建一个包含 onComplete 的配置
-			this.handleInterrupt(oldValue, newValue, { duration: this.defaultTransition.duration, onComplete }, targetStateName);
+			this.handleInterrupt(
+				oldValue,
+				newValue,
+				{ duration: this.defaultTransition.duration, onComplete },
+				targetStateName,
+			);
 			return;
 		}
 
@@ -248,16 +280,32 @@ export class AnimationGear<
 			this.currentTimeline = null;
 		}
 
-		const d = transition?.duration ?? this.defaultTransition.duration;
-		const map = transition?.map ?? this.defaultTransition.map ?? ((x) => x);
-		const onComplete = transition?.onComplete;
+		// 查找状态机层面的配置
+		const fromState = this.states.get(this.currentStateName ?? "");
+		const stateTransition = fromState?.transitions?.get(targetStateName ?? "");
 
-		const timeLine = this.createTimeLine(d, (progress) => {
-			const mappedProgress = map(progress);
-			const value = this.interpolate(fromValue, toValue, mappedProgress);
-			this.currentValue = value;
-			this.updateCallback?.(value);
-		}, onComplete);
+		// 合并配置：全局 < 状态机 < moveTo
+		// moveTo 参数优先级最高
+		const mergedTransition: TransitionConfig = {
+			...this.defaultTransition, // 全局默认
+			...stateTransition, // 状态机覆盖
+			...transition, // moveTo 覆盖
+		};
+
+		const d = mergedTransition.duration;
+		const map = mergedTransition.map ?? ((x) => x);
+		const onComplete = mergedTransition.onComplete;
+
+		const timeLine = this.createTimeLine(
+			d,
+			(progress) => {
+				const mappedProgress = map(progress);
+				const value = this.interpolate(fromValue, toValue, mappedProgress);
+				this.currentValue = value;
+				this.updateCallback?.(value);
+			},
+			onComplete,
+		);
 
 		this.currentTimeline = {
 			fromValue,

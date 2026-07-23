@@ -33,12 +33,23 @@ const gear = new AnimationGear<State>(
 
 ### 命名状态
 
-通过`addState`添加命名状态：
+通过`addState`添加命名状态，支持三种配置方式：
 
 ```ts
-gear.addState("start", { x: 0, y: 0, opacity: 1 }, ["end"]);
-gear.addState("end", { x: 100, y: 50, opacity: 0.5 }, ["start"]);
+// 简单连接（使用默认配置）
+gear.addState("start", { x: 0, y: 0 }, ["end"]);
+
+// 带配置的连接（永久覆盖）
+gear.addState("waiting", { ... }, [
+    "dot",                                          // 简单连接
+    { name: "hiding", duration: 200, onComplete: () => { /* ... */ } }  // 带配置
+]);
 ```
+
+**配置优先级（从低到高）：**
+1. 全局配置（constructor 的 transition）
+2. 状态机配置（addState 的连接配置）
+3. moveTo 参数（临时覆盖）
 
 ### 移动到目标
 
