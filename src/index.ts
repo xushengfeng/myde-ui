@@ -117,6 +117,7 @@ class TimeLine {
 export type TransitionConfig = {
 	duration: number;
 	map?: (num: number) => number;
+	onComplete?: () => void;
 };
 
 export class AnimationGear<
@@ -190,16 +191,22 @@ export class AnimationGear<
 	private createTimeLine(
 		duration: number,
 		cb: (num: number) => void,
+		onComplete?: () => void,
 	): TimeLine {
 		return new TimeLine(this.time, duration, (n) => {
 			cb(n);
 			if (n === 1) {
 				this.currentTimeline = null;
+				onComplete?.();
 			}
 		});
 	}
 
-	moveTo(target: string | Partial<T>, transition?: number | TransitionConfig) {
+	moveTo(
+		target: string | Partial<T>,
+		transition?: number | TransitionConfig,
+		onComplete?: () => void,
+	) {
 		const oldValue = this.getCurrentVisualValue();
 		let newValue: T;
 		let targetStateName: string | null = null;
@@ -218,6 +225,15 @@ export class AnimationGear<
 		const transitionConfig: TransitionConfig | undefined =
 			typeof transition === "number" ? { duration: transition } : transition;
 
+		// 如果提供了临时 onComplete，合并到 transitionConfig 中
+		if (onComplete && transitionConfig) {
+			transitionConfig.onComplete = onComplete;
+		} else if (onComplete) {
+			// 如果没有 transitionConfig，创建一个包含 onComplete 的配置
+			this.handleInterrupt(oldValue, newValue, { duration: this.defaultTransition.duration, onComplete }, targetStateName);
+			return;
+		}
+
 		this.handleInterrupt(oldValue, newValue, transitionConfig, targetStateName);
 	}
 
@@ -234,13 +250,14 @@ export class AnimationGear<
 
 		const d = transition?.duration ?? this.defaultTransition.duration;
 		const map = transition?.map ?? this.defaultTransition.map ?? ((x) => x);
+		const onComplete = transition?.onComplete;
 
 		const timeLine = this.createTimeLine(d, (progress) => {
 			const mappedProgress = map(progress);
 			const value = this.interpolate(fromValue, toValue, mappedProgress);
 			this.currentValue = value;
 			this.updateCallback?.(value);
-		});
+		}, onComplete);
 
 		this.currentTimeline = {
 			fromValue,

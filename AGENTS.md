@@ -60,6 +60,27 @@ gear.moveTo({ x: 50 }, { duration: 500, map: (x) => x * x });
 // duration=0 直接跳转无动画
 gear.moveTo("start", { duration: 0 });
 gear.moveTo({ x: 0, y: 0 }, 0);
+
+// onComplete回调（动画完成后触发）
+gear.moveTo("end", { duration: 300, onComplete: () => console.log("完成") });
+
+// 临时onComplete（优先级高于transition中的onComplete）
+gear.moveTo("end", { duration: 300 }, () => console.log("临时完成"));
+```
+
+### 临时性概念
+
+`moveTo` 的参数都是**临时的**：
+- `transition` 配置只影响当次调用
+- `onComplete` 只绑定到当次创建的 TimeLine
+- 打断时旧的 `onComplete` 不会被调用，也不会残留
+
+```ts
+// 第一次：有 onComplete
+gear.moveTo("waiting", { duration: 500, onComplete: () => gear.moveTo("dot") });
+
+// 第二次：没有 onComplete（不会继承上次的）
+gear.moveTo("waiting");
 ```
 
 ### 更新回调
